@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Content Q&A Tool</title>
+    <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <header>
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">
+                    <i class="fas fa-robot"></i>
+                    <h1>Web Content Q&A Tool</h1>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="container">
+        <div class="tabs">
+            <div class="tab active" data-target="scrapeTab">
+                <i class="fas fa-spider"></i> Scrape Content
+            </div>
+            <div class="tab" data-target="askTab">
+                <i class="fas fa-question-circle"></i> Ask Questions
+            </div>
+            <div class="tab" data-target="manageTab">
+                <i class="fas fa-cog"></i> Manage URLs
+            </div>
+        </div>
+
+        <div id="scrapeTab" class="tab-content active">
+            <div class="card">
+                <h2 class="card-title">
+                    <i class="fas fa-globe"></i> 
+                    Add URLs to Scrape
+                </h2>
+                <form id="scrapeForm">
+                    <div id="urlInputContainer" class="url-input-container">
+                        <!-- URL inputs will be added here -->
+                    </div>
+                    
+                    <button type="button" id="addUrlBtn" class="button secondary">
+                        <i class="fas fa-plus"></i> Add Another URL
+                    </button>
+                    
+                    <div class="checkbox-container">
+                        <input type="checkbox" id="usePlaywright" checked>
+                        <label for="usePlaywright">Use Playwright (recommended for dynamic content)</label>
+                    </div>
+                    
+                    <button type="submit" class="button">
+                        <i class="fas fa-download"></i> Scrape Content
+                    </button>
+                    
+                    <div id="scrapeLoader" class="loader">
+                        <div class="spinner"></div>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <div id="askTab" class="tab-content">
+            <div class="card">
+                <h2 class="card-title">
+                    <i class="fas fa-question"></i> 
+                    Ask About Scraped Content
+                </h2>
+                <form id="askForm">
+                    <input 
+                        type="text" 
+                        id="questionInput" 
+                        class="question-input" 
+                        placeholder="Ask a question about the scraped content..."
+                        required
+                    >
+                    
+                    <button type="submit" class="button">
+                        <i class="fas fa-paper-plane"></i> Ask Question
+                    </button>
+                    
+                    <div id="askLoader" class="loader">
+                        <div class="spinner"></div>
+                    </div>
+                </form>
+                
+                <div id="answerContainer" class="answer-container">
+                    <p id="answerText" class="answer-text"></p>
+                    <h3 id="sourcesTitle" class="sources-title">Sources:</h3>
+                    <div id="sourcesContainer" class="sources-container"></div>
+                </div>
+            </div>
+        </div>
+        
+        <div id="manageTab" class="tab-content">
+            <div class="card">
+                <h2 class="card-title">
+                    <i class="fas fa-list"></i> 
+                    Manage Scraped URLs
+                </h2>
+                <div id="scrapedUrlsContainer" class="scraped-urls-container">
+                    <!-- Scraped URLs will be listed here -->
+                    <p class="no-urls">No URLs have been scraped yet.</p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <div id="notification" class="notification">
+        <i id="notificationIcon" class="fas fa-info-circle"></i>
+        <span id="notificationText">Notification message</span>
+    </div>
+
+    <footer class="footer">
+        <p>Web Content Q&A Tool &copy; 2025 | Powered by FastAPI, LangChain, and OpenAI</p>
+    </footer>
+
+    <script src="script.js"> 
+    </script>
+</body>
+</html>
