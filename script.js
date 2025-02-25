@@ -5,7 +5,7 @@ let userId = localStorage.getItem('userId') || null;
 let scrapedUrls = [];
 
 // API base URL - change this to match your FastAPI server
-const API_BASE_URL = 'https://aisensy-qna-backend.onrender.com';
+const API_BASE_URL = 'http://13.232.93.150:8000';
 
 // DOM Elements
 document.addEventListener('DOMContentLoaded', () => {
