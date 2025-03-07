@@ -92,7 +92,7 @@ function setupRequestStateChecker() {
                 const request = pendingRequests[id];
                 if (now - request.startTime > 20000) { // 20 minutes
                     console.warn(`Request ${id} has been pending for more than 2 minutes`);
-                    showNotification('Minimum time per request is 90 seconds. The server might be busy.', 'info');
+                    showNotification('Minimum time per request is 2 Minutes due to LOW BUDGET SERVER.', 'warning');
                 }
             });
         }
