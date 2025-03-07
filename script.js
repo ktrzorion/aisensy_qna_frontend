@@ -8,7 +8,7 @@ let processingTimer = null;
 let pendingRequests = {}; // Track pending API requests
 
 // API base URL - change this to match your FastAPI server
-const API_BASE_URL = 'http://127.0.0.1:8000';
+const API_BASE_URL = 'http://13.232.135.114:8000';
 
 // DOM Elements
 document.addEventListener('DOMContentLoaded', () => {
@@ -90,13 +90,13 @@ function setupRequestStateChecker() {
             const now = Date.now();
             requestIds.forEach(id => {
                 const request = pendingRequests[id];
-                if (now - request.startTime > 120000) { // 2 minutes
+                if (now - request.startTime > 20000) { // 20 minutes
                     console.warn(`Request ${id} has been pending for more than 2 minutes`);
                     showNotification('A request is taking longer than expected. The server might be busy.', 'info');
                 }
             });
         }
-    }, 30000); // Check every 30 seconds
+    }, 20000); // Check every 30 seconds
 }
 
 // Create a new API request with tracking
