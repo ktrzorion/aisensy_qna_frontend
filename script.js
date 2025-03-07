@@ -5,6 +5,7 @@ let userId = localStorage.getItem('userId') || null;
 let scrapedUrls = [];
 let wsConnection = null;
 let processingTimer = null;
+let pendingRequests = {}; // Track pending API requests
 
 // API base URL - change this to match your FastAPI server
 const API_BASE_URL = 'http://127.0.0.1:8000';
@@ -17,9 +18,19 @@ document.addEventListener('DOMContentLoaded', () => {
     
     tabs.forEach(tab => {
         tab.addEventListener('click', () => {
-            // Skip if already active or processing a request
+
             if (tab.classList.contains('active') || isProcessing) return;
+        
+            // Clear any existing processing timers when switching tabs
+            if (processingTimer) {
+                clearTimeout(processingTimer);
+                processingTimer = null;
+            }
             
+            // Hide any visible processing messages
+            document.getElementById('scrapeProcessingMessage').style.display = 'none';
+            document.getElementById('askProcessingMessage').style.display = 'none';
+
             // Update active tab
             tabs.forEach(t => t.classList.remove('active'));
             tab.classList.add('active');
@@ -63,7 +74,81 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Initialize progress bar as hidden
     hideProgressBar();
+
+    // Setup request state checker
+    setupRequestStateChecker();
 });
+
+// Setup a periodic checker for request states
+function setupRequestStateChecker() {
+    setInterval(() => {
+        const requestIds = Object.keys(pendingRequests);
+        if (requestIds.length > 0) {
+            console.log(`Currently ${requestIds.length} pending requests`);
+            
+            // Check if any requests have been pending for too long (more than 2 minutes)
+            const now = Date.now();
+            requestIds.forEach(id => {
+                const request = pendingRequests[id];
+                if (now - request.startTime > 120000) { // 2 minutes
+                    console.warn(`Request ${id} has been pending for more than 2 minutes`);
+                    showNotification('A request is taking longer than expected. The server might be busy.', 'info');
+                }
+            });
+        }
+    }, 30000); // Check every 30 seconds
+}
+
+// Create a new API request with tracking
+function createApiRequest(endpoint, options, requestType) {
+    // Generate a unique ID for this request
+    const requestId = `${requestType}-${Date.now()}`;
+    
+    // Create AbortController to allow cancellation
+    const controller = new AbortController();
+    options.signal = controller.signal;
+    
+    // Store request in pending requests
+    pendingRequests[requestId] = {
+        type: requestType,
+        endpoint,
+        startTime: Date.now(),
+        controller,
+        isPending: true
+    };
+    
+    // Create the fetch promise
+    const fetchPromise = fetch(`${API_BASE_URL}${endpoint}`, options)
+        .then(response => {
+            // Remove from pending requests
+            if (pendingRequests[requestId]) {
+                delete pendingRequests[requestId];
+            }
+            return response;
+        })
+        .catch(error => {
+            // Remove from pending requests
+            if (pendingRequests[requestId]) {
+                delete pendingRequests[requestId];
+            }
+            throw error;
+        });
+    
+    // Add ability to check if request is pending
+    fetchPromise.isPending = () => {
+        return pendingRequests[requestId] && pendingRequests[requestId].isPending;
+    };
+    
+    // Add ability to abort the request
+    fetchPromise.abort = () => {
+        if (pendingRequests[requestId]) {
+            pendingRequests[requestId].controller.abort();
+            delete pendingRequests[requestId];
+        }
+    };
+    
+    return fetchPromise;
+}
 
 // Setup WebSocket connection
 function setupWebSocketConnection() {
@@ -183,11 +268,13 @@ function hideProgressBar() {
 async function checkUserData() {
     if (userId) {
         try {
-            const response = await fetch(`${API_BASE_URL}/urls`, {
+            const options = {
                 headers: {
                     'X-User-ID': userId
                 }
-            });
+            };
+            
+            const response = await createApiRequest('/urls', options, 'checkUserData');
             
             if (response.ok) {
                 const data = await response.json();
@@ -207,19 +294,33 @@ async function checkUserData() {
     }
 }
 
+// Check if any request for a specific type is pending
+function isRequestPending(requestType) {
+    const pendingIds = Object.keys(pendingRequests);
+    return pendingIds.some(id => pendingRequests[id].type === requestType);
+}
+
 // Load scraped URLs for management
 async function loadScrapedUrls() {
     if (!userId) return;
+    
+    // Check if a loadUrls request is already pending
+    if (isRequestPending('loadUrls')) {
+        console.log('A load URLs request is already pending');
+        return;
+    }
     
     const urlsContainer = document.getElementById('scrapedUrlsContainer');
     urlsContainer.innerHTML = '<div class="loader show"><div class="spinner"></div></div>';
     
     try {
-        const response = await fetch(`${API_BASE_URL}/urls`, {
+        const options = {
             headers: {
                 'X-User-ID': userId
             }
-        });
+        };
+        
+        const response = await createApiRequest('/urls', options, 'loadUrls');
         
         if (response.ok) {
             const data = await response.json();
@@ -262,10 +363,16 @@ async function loadScrapedUrls() {
 async function removeUrl(url) {
     if (isProcessing) return;
     
+    // Check if a removeUrl request for this URL is already pending
+    if (isRequestPending(`removeUrl-${url}`)) {
+        console.log(`A remove URL request for ${url} is already pending`);
+        return;
+    }
+    
     isProcessing = true;
     
     try {
-        const response = await fetch(`${API_BASE_URL}/remove-url`, {
+        const options = {
             method: 'DELETE',
             headers: {
                 'Content-Type': 'application/json',
@@ -274,7 +381,9 @@ async function removeUrl(url) {
             body: JSON.stringify({
                 url: url
             })
-        });
+        };
+        
+        const response = await createApiRequest('/remove-url', options, `removeUrl-${url}`);
         
         const data = await response.json();
         
@@ -284,11 +393,13 @@ async function removeUrl(url) {
             loadScrapedUrls();
             
             // Check if we still have content
-            const urlsResponse = await fetch(`${API_BASE_URL}/urls`, {
+            const urlsOptions = {
                 headers: {
                     'X-User-ID': userId
                 }
-            });
+            };
+            
+            const urlsResponse = await createApiRequest('/urls', urlsOptions, 'checkRemainingUrls');
             
             if (urlsResponse.ok) {
                 const urlsData = await urlsResponse.json();
@@ -334,11 +445,43 @@ function addUrlInput() {
     urlContainer.appendChild(urlInputRow);
 }
 
+// Update processing status based on active requests
+function updateProcessingStatus() {
+    // Check if there are any pending requests
+    const hasPendingRequests = Object.keys(pendingRequests).length > 0;
+    
+    // Update status based on pending requests
+    if (hasPendingRequests) {
+        const requestTypes = Object.values(pendingRequests).map(req => req.type);
+        console.log(`Active requests: ${requestTypes.join(', ')}`);
+        
+        // Update processing state if we have pending requests but isProcessing is false
+        if (!isProcessing) {
+            isProcessing = true;
+            console.log('Setting isProcessing to true due to pending requests');
+        }
+    } else if (isProcessing) {
+        // No pending requests but isProcessing is true - may need to reset
+        console.log('No pending requests but isProcessing is true - considering reset');
+        
+        // Could add a delay here before setting isProcessing to false
+        // setTimeout(() => {
+        //    isProcessing = false;
+        // }, 1000);
+    }
+}
+
 // Handle scrape form submission
 async function handleScrapeSubmit(e) {
     e.preventDefault();
     
     if (isProcessing) return;
+    
+    // Check if a scrape request is already pending
+    if (isRequestPending('scrape')) {
+        console.log('A scrape request is already pending');
+        return;
+    }
     
     const urlInputs = document.querySelectorAll('.url-input');
     const usePlaywright = document.getElementById('usePlaywright').checked;
@@ -360,8 +503,15 @@ async function handleScrapeSubmit(e) {
     isProcessing = true;
     showLoader('scrapeLoader');
     
-    // Set a timer to show a notification if processing takes too long
+    // Show processing message immediately
+    const processingMessage = document.getElementById('scrapeProcessingMessage');
+    processingMessage.textContent = 'Processing URLs...';
+    processingMessage.style.display = 'block';
+
+    // Update message if it takes longer
     processingTimer = setTimeout(() => {
+        processingMessage.textContent = 'Processing URLs may take some time, especially for complex websites. Please be patient.';
+        // Still show notification to ensure user sees it
         showNotification('Processing URLs may take some time, especially for complex websites. Please be patient.', 'info');
     }, 20000); // 20 seconds
     
@@ -375,14 +525,16 @@ async function handleScrapeSubmit(e) {
             headers['X-User-ID'] = userId;
         }
         
-        const response = await fetch(`${API_BASE_URL}/scrape`, {
+        const options = {
             method: 'POST',
             headers: headers,
             body: JSON.stringify({
                 urls: urls,
                 use_playwright: usePlaywright
             })
-        });
+        };
+        
+        const response = await createApiRequest('/scrape', options, 'scrape');
         
         const data = await response.json();
         
@@ -417,9 +569,16 @@ async function handleScrapeSubmit(e) {
             clearTimeout(processingTimer);
             processingTimer = null;
         }
+        
+        // Hide processing message
+        document.getElementById('scrapeProcessingMessage').style.display = 'none';
+        
+        // Update processing status based on pending requests
+        updateProcessingStatus();
     }
 }
 
+// Handle ask form submission
 // Handle ask form submission
 async function handleAskSubmit(e) {
     e.preventDefault();
@@ -446,8 +605,15 @@ async function handleAskSubmit(e) {
     showLoader('askLoader');
     hideAnswerContainer();
     
-    // Set a timer to show a notification if processing takes too long
+    // Show processing message immediately
+    const processingMessage = document.getElementById('askProcessingMessage');
+    processingMessage.textContent = 'Processing your question...';
+    processingMessage.style.display = 'block';
+    
+    // Update message if it takes longer
     processingTimer = setTimeout(() => {
+        processingMessage.textContent = 'Processing your question may take some time. Please be patient.';
+        // Still show notification to ensure user sees it
         showNotification('Processing your question may take some time. Please be patient.', 'info');
     }, 20000); // 20 seconds
     
@@ -489,6 +655,38 @@ async function handleAskSubmit(e) {
             clearTimeout(processingTimer);
             processingTimer = null;
         }
+        
+        // Hide processing message
+        document.getElementById('askProcessingMessage').style.display = 'none';
+    }
+}
+
+// Check status of API requests
+function checkRequestStatus() {
+    // If no pending requests, return
+    if (Object.keys(pendingRequests).length === 0) {
+        // Update UI to indicate all requests are complete if needed
+        if (document.getElementById('apiStatusIndicator')) {
+            document.getElementById('apiStatusIndicator').textContent = 'All API requests complete';
+            document.getElementById('apiStatusIndicator').className = 'status-complete';
+        }
+        return;
+    }
+    
+    // Get all pending requests
+    const pendingIds = Object.keys(pendingRequests);
+    const requestTypes = [];
+    
+    pendingIds.forEach(id => {
+        requestTypes.push(pendingRequests[id].type);
+    });
+    
+    console.log(`Pending requests: ${requestTypes.join(', ')}`);
+    
+    // Update UI to show pending requests if needed
+    if (document.getElementById('apiStatusIndicator')) {
+        document.getElementById('apiStatusIndicator').textContent = `API requests pending: ${requestTypes.join(', ')}`;
+        document.getElementById('apiStatusIndicator').className = 'status-pending';
     }
 }
 
@@ -572,3 +770,6 @@ function showNotification(message, type) {
         notification.classList.remove('show');
     }, 5000);
 }
+
+// Set up interval to check API status regularly
+setInterval(checkRequestStatus, 2000); // Check every 2 seconds

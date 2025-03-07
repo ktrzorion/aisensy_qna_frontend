@@ -357,3 +357,11 @@ header {
         font-size: 16px;
     }
 }
+
+.processing-message {
+    display: none;
+    margin-top: 10px;
+    text-align: center;
+    font-style: italic;
+    color: #666;
+}
