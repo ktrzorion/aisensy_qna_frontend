@@ -92,7 +92,7 @@ function setupRequestStateChecker() {
                 const request = pendingRequests[id];
                 if (now - request.startTime > 20000) { // 20 minutes
                     console.warn(`Request ${id} has been pending for more than 2 minutes`);
-                    showNotification('Minimum time per request is 2 Minutes due to LOW BUDGET SERVER.', 'warning');
+                    showNotification('Request is taking longer. The server might be busy.', 'info');
                 }
             });
         }
@@ -499,6 +499,9 @@ async function handleScrapeSubmit(e) {
         return;
     }
     
+    // Reset progress bar before starting new scrape
+    resetProgressBar();
+    
     // Start processing
     isProcessing = true;
     showLoader('scrapeLoader');
@@ -578,7 +581,6 @@ async function handleScrapeSubmit(e) {
     }
 }
 
-// Handle ask form submission
 // Handle ask form submission
 async function handleAskSubmit(e) {
     e.preventDefault();
@@ -769,6 +771,69 @@ function showNotification(message, type) {
     setTimeout(() => {
         notification.classList.remove('show');
     }, 5000);
+}
+
+function resetProgressBar() {
+    const progressContainer = document.getElementById('progressContainer');
+    const progressBar = document.getElementById('progressBar');
+    const progressStatus = document.getElementById('progressStatus');
+    const progressCounter = document.getElementById('progressCounter');
+    const progressUrl = document.getElementById('progressUrl');
+    
+    // Hide progress container
+    progressContainer.classList.remove('show');
+    
+    // Reset progress bar width and remove any error class
+    progressBar.style.width = '0%';
+    progressBar.classList.remove('error');
+    
+    // Reset text elements
+    progressStatus.textContent = '';
+    progressCounter.textContent = '0/0';
+    progressUrl.textContent = '';
+}
+
+// Update the setupWebSocketConnection function to reset progress bar on new connection
+function setupWebSocketConnection() {
+    if (!userId) return;
+    
+    // Close existing connection if any
+    if (wsConnection) {
+        wsConnection.close();
+    }
+    
+    // Reset progress bar when setting up a new connection
+    resetProgressBar();
+    
+    const wsUrl = API_BASE_URL.replace('http', 'ws') + `/ws/${userId}`;
+    wsConnection = new WebSocket(wsUrl);
+    
+    wsConnection.onopen = () => {
+        console.log('WebSocket connection established');
+    };
+    
+    wsConnection.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        updateProgressBar(data);
+        
+        // Clear timer since we received an update
+        if (processingTimer) {
+            clearTimeout(processingTimer);
+            processingTimer = null;
+        }
+    };
+    
+    wsConnection.onerror = (error) => {
+        console.error('WebSocket error:', error);
+    };
+    
+    wsConnection.onclose = () => {
+        console.log('WebSocket connection closed');
+        // Try to reconnect after 5 seconds if processing
+        if (isProcessing) {
+            setTimeout(setupWebSocketConnection, 5000);
+        }
+    };
 }
 
 // Set up interval to check API status regularly
