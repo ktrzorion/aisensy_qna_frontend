@@ -3,9 +3,11 @@ let isProcessing = false;
 let hasScrapedContent = false;
 let userId = localStorage.getItem('userId') || null;
 let scrapedUrls = [];
+let wsConnection = null;
+let processingTimer = null;
 
 // API base URL - change this to match your FastAPI server
-const API_BASE_URL = 'http://13.232.135.114:8000';
+const API_BASE_URL = 'http://127.0.0.1:8000';
 
 // DOM Elements
 document.addEventListener('DOMContentLoaded', () => {
@@ -58,7 +60,124 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Check if we have user data
     checkUserData();
+    
+    // Initialize progress bar as hidden
+    hideProgressBar();
 });
+
+// Setup WebSocket connection
+function setupWebSocketConnection() {
+    if (!userId) return;
+    
+    // Close existing connection if any
+    if (wsConnection) {
+        wsConnection.close();
+    }
+    
+    const wsUrl = API_BASE_URL.replace('http', 'ws') + `/ws/${userId}`;
+    wsConnection = new WebSocket(wsUrl);
+    
+    wsConnection.onopen = () => {
+        console.log('WebSocket connection established');
+    };
+    
+    wsConnection.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        updateProgressBar(data);
+        
+        // Clear timer since we received an update
+        if (processingTimer) {
+            clearTimeout(processingTimer);
+            processingTimer = null;
+        }
+    };
+    
+    wsConnection.onerror = (error) => {
+        console.error('WebSocket error:', error);
+    };
+    
+    wsConnection.onclose = () => {
+        console.log('WebSocket connection closed');
+        // Try to reconnect after 5 seconds if processing
+        if (isProcessing) {
+            setTimeout(setupWebSocketConnection, 5000);
+        }
+    };
+}
+
+// Update progress bar based on websocket data
+function updateProgressBar(data) {
+    const progressContainer = document.getElementById('progressContainer');
+    const progressBar = document.getElementById('progressBar');
+    const progressStatus = document.getElementById('progressStatus');
+    const progressCounter = document.getElementById('progressCounter');
+    const progressUrl = document.getElementById('progressUrl');
+    
+    // Show progress container
+    progressContainer.classList.add('show');
+    
+    // Update progress bar
+    const percentage = (data.current / data.total) * 100;
+    progressBar.style.width = `${percentage}%`;
+    
+    // Set counter text
+    progressCounter.textContent = `${data.current}/${data.total}`;
+    
+    // Set status text
+    let statusText = 'Processing...';
+    
+    switch (data.status) {
+        case 'starting':
+            statusText = 'Starting...';
+            break;
+        case 'fetching':
+            statusText = 'Fetching content...';
+            break;
+        case 'processing':
+            statusText = 'Processing content...';
+            break;
+        case 'complete':
+            statusText = 'Complete!';
+            break;
+        case 'error':
+            statusText = 'Error!';
+            progressBar.classList.add('error');
+            break;
+    }
+    
+    progressStatus.textContent = statusText;
+    
+    // Set URL text if available
+    if (data.url) {
+        progressUrl.textContent = data.url;
+    } else {
+        progressUrl.textContent = '';
+    }
+    
+    // If process is complete or errored, hide after a delay
+    if (data.status === 'complete' || data.status === 'error') {
+        if (data.status === 'error') {
+            showNotification(data.url || 'An error occurred', 'error');
+        }
+        
+        // Keep showing for 3 seconds before hiding
+        setTimeout(() => {
+            if (!isProcessing) {
+                hideProgressBar();
+            }
+        }, 3000);
+    }
+}
+
+// Hide progress bar
+function hideProgressBar() {
+    const progressContainer = document.getElementById('progressContainer');
+    const progressBar = document.getElementById('progressBar');
+    
+    progressContainer.classList.remove('show');
+    progressBar.classList.remove('error');
+    progressBar.style.width = '0%';
+}
 
 // Check if we have existing user data
 async function checkUserData() {
@@ -78,6 +197,9 @@ async function checkUserData() {
                 if (hasScrapedContent) {
                     showNotification('Loaded your existing scraped content', 'success');
                 }
+                
+                // Setup WebSocket connection
+                setupWebSocketConnection();
             }
         } catch (error) {
             console.error('Error checking user data:', error);
@@ -238,6 +360,11 @@ async function handleScrapeSubmit(e) {
     isProcessing = true;
     showLoader('scrapeLoader');
     
+    // Set a timer to show a notification if processing takes too long
+    processingTimer = setTimeout(() => {
+        showNotification('Processing URLs may take some time, especially for complex websites. Please be patient.', 'info');
+    }, 20000); // 20 seconds
+    
     try {
         const headers = {
             'Content-Type': 'application/json'
@@ -267,6 +394,9 @@ async function handleScrapeSubmit(e) {
         if (data.user_id) {
             userId = data.user_id;
             localStorage.setItem('userId', userId);
+            
+            // Setup WebSocket connection with new user ID
+            setupWebSocketConnection();
         }
         
         hasScrapedContent = true;
@@ -281,6 +411,12 @@ async function handleScrapeSubmit(e) {
     } finally {
         isProcessing = false;
         hideLoader('scrapeLoader');
+        
+        // Clear the processing timer if it exists
+        if (processingTimer) {
+            clearTimeout(processingTimer);
+            processingTimer = null;
+        }
     }
 }
 
@@ -309,6 +445,11 @@ async function handleAskSubmit(e) {
     isProcessing = true;
     showLoader('askLoader');
     hideAnswerContainer();
+    
+    // Set a timer to show a notification if processing takes too long
+    processingTimer = setTimeout(() => {
+        showNotification('Processing your question may take some time. Please be patient.', 'info');
+    }, 20000); // 20 seconds
     
     try {
         const headers = {
@@ -342,6 +483,12 @@ async function handleAskSubmit(e) {
     } finally {
         isProcessing = false;
         hideLoader('askLoader');
+        
+        // Clear the processing timer if it exists
+        if (processingTimer) {
+            clearTimeout(processingTimer);
+            processingTimer = null;
+        }
     }
 }
 
@@ -409,8 +556,12 @@ function showNotification(message, type) {
     // Set icon
     if (type === 'success') {
         notificationIcon.className = 'fas fa-check-circle';
-    } else {
+    } else if (type === 'error') {
         notificationIcon.className = 'fas fa-exclamation-circle';
+    } else if (type === 'info') {
+        notificationIcon.className = 'fas fa-info-circle';
+    } else {
+        notificationIcon.className = 'fas fa-info-circle';
     }
     
     // Show notification
